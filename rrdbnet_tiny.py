@@ -8,18 +8,62 @@ class ResidualDenseBlock:
         self.conv3 = nn.Conv2d(num_feat + 2 * num_grow_ch, num_grow_ch, 3, 1, 1)
         self.conv4 = nn.Conv2d(num_feat + 3 * num_grow_ch, num_grow_ch, 3, 1, 1)
         self.conv5 = nn.Conv2d(num_feat + 4 * num_grow_ch, num_feat, 3, 1, 1)
-        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
     def __call__(self, x):
-        x1 = self.lrelu(self.conv1(x))
-        x2 = self.lrelu(self.conv2(torch.cat((x, x1), 1)))
-        x3 = self.lrelu(self.conv3(torch.cat((x, x1, x2), 1)))
-        x4 = self.lrelu(self.conv4(torch.cat((x, x1, x2, x3), 1)))
-        x5 = self.conv5(torch.cat((x, x1, x2, x3, x4), 1))
-        # Empirically, we use 0.2 to scale the residual for better performance
+        x1 = self.conv1(x).leaky_relu(0.2)
+        x2 = self.conv2(x.cat(x1, dim=1)).leaky_relu(0.2)
+        x3 = self.conv3(x.cat(x1, x2, dim=1)).leaky_relu(0.2)
+        x4 = self.conv4(x.cat(x1, x2, x3, dim=1)).leaky_relu(0.2)
+        x5 = self.conv5(x.cat(x1, x2, x3, x4, dim=1))
         return x5 * 0.2 + x
 
 
-x = Tensor.ones(1, 3, 32, 32)
-model = ResidualDenseBlock()
-print(model(x).numpy())
+class RRDB:
+    def __init__(self, num_feat, num_grow_ch=32):
+        self.rdb1 = ResidualDenseBlock(num_feat, num_grow_ch)
+        self.rdb2 = ResidualDenseBlock(num_feat, num_grow_ch)
+        self.rdb3 = ResidualDenseBlock(num_feat, num_grow_ch)
+
+    def __call__(self, x):
+        out = self.rdb1(x)
+        out = self.rdb2(out)
+        out = self.rdb3(out)
+        return out * 0.2 + x
+
+
+class RRDBNet:
+    def __init__(self, num_in_ch, num_out_ch, num_feat=64, num_block=23, num_grow_ch=32):
+        self.conv_first = nn.Conv2d(num_in_ch, num_feat, 3, 1, 1)
+
+        # self.body = make_layer(RRDB, num_block, num_feat=num_feat, num_grow_ch=num_grow_ch)
+        self.body = []
+        for _ in range(num_block):
+            self.body.append(RRDB(num_feat=num_feat, num_grow_ch=num_grow_ch))
+            
+        self.conv_body = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
+        self.conv_up1 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
+        self.conv_up2 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
+        self.conv_hr = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
+        self.conv_last = nn.Conv2d(num_feat, num_out_ch, 3, 1, 1)
+
+    def __call__(self, x):
+        feat = self.conv_first(x)
+
+        # body_feat = self.conv_body(self.body(feat))
+        for layer in self.body:
+            feat = layer(feat)
+
+        body_feat = self.conv_body(feat)
+        feat = feat + body_feat
+
+        # feat = self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest')).leaky_relu(0.2)
+        # feat = self.conv_up2(F.interpolate(feat, scale_factor=2, mode='nearest')).leaky_relu(0.2)
+
+        _, _, h, w = feat.shape
+        feat = self.conv_up1(feat.interpolate(size=(h * 2, w * 2), mode='nearest')).leaky_relu(0.2)
+
+        _, _, h, w = feat.shape
+        feat = self.conv_up2(feat.interpolate(size=(h * 2, w * 2), mode='nearest')).leaky_relu(0.2)
+
+        out = self.conv_last(self.conv_hr(feat).leaky_relu(0.2))
+        return out
