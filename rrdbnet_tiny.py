@@ -50,10 +50,11 @@ class RRDBNet:
         feat = self.conv_first(x)
 
         # body_feat = self.conv_body(self.body(feat))
+        x = feat
         for layer in self.body:
-            feat = layer(feat)
+            x = layer(x)
 
-        body_feat = self.conv_body(feat)
+        body_feat = self.conv_body(x)
         feat = feat + body_feat
 
         # feat = self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest')).leaky_relu(0.2)
