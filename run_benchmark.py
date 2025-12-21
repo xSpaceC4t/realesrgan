@@ -11,18 +11,11 @@ from srvgg_tch import SRVGGNetCompact as SRVGGNetTch
 from srvgg_tiny import SRVGGNetCompact as SRVGGNetTiny
 
 
-def load_pth(path, model):
-    loadnet = torch.load(path, map_location=torch.device('cpu'))
-    if 'params_ema' in loadnet:
-        keyname = 'params_ema'
-    else:
-        keyname = 'params'
-    model.load_state_dict(loadnet[keyname], strict=True)
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument('model_name', type=str)
 parser.add_argument('--skip-torch', action='store_true')
+parser.add_argument('--tile-size', type=int, default=128)
+parser.add_argument('--num-samples', type=int, default=50)
 args = parser.parse_args()
 
 if args.model_name == 'RealESRGAN_x4plus':
@@ -35,8 +28,8 @@ elif args.model_name == 'realesr-general-x4v3':
     model_tch = SRVGGNetTch(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=32, upscale=4, act_type='prelu')
     model_tiny = SRVGGNetTiny(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=32, upscale=4, act_type='prelu')
 
-tile_size = 128
-num_samples = 50
+tile_size = args.tile_size
+num_samples = args.num_samples
 in_shape = (1, 3, tile_size, tile_size)
 
 print(f'Running {args.model_name}...')
