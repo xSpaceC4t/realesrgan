@@ -1,4 +1,6 @@
 import torch
+import cv2
+import numpy as np
 from tinygrad.nn.state import safe_load, load_state_dict, get_state_dict
 
 
@@ -38,3 +40,32 @@ def load_model(name, backend, weights=False):
         load_pth(f'models_pth/{name}.pth', model)
 
     return model
+
+
+def load_img(path):
+    img = cv2.imread(path)
+    img = np.transpose(img, (2, 0, 1))
+    img = np.expand_dims(img, axis=0)
+    img = img.astype(np.float32) / 255.0
+    return img
+
+
+def save_img(path, img):
+    img = np.clip(img, 0.0, 1.0)
+    img = (img * 255.0).round().astype(np.uint8)
+    img = img.squeeze()
+    img = np.transpose(img[[2, 1, 0], :, :], (1, 2, 0))
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    cv2.imwrite(path, img)
+
+
+def show_img(img):
+    img = np.clip(img, 0.0, 1.0)
+    img = (img * 255.0).round().astype(np.uint8)
+    img = img.squeeze()
+    img = np.transpose(img[[2, 1, 0], :, :], (1, 2, 0))
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    cv2.imshow('preview', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
