@@ -53,10 +53,10 @@ def load_tiles(img, tile_size):
     return tiles
 
 
-def load(lq, pq, tile_size):
+def load(lq, pq, tile_size, input_path):
     while not lq.empty():
         file = lq.get()
-        img = load_img(f'inputs/{file}')
+        img = load_img(f'{input_path}/{file}')
         tiles = load_tiles(img, tile_size)
         item = {
             'file': file,
@@ -98,7 +98,7 @@ def proc(lq, pq, sq, model_name, backend='tiny', cpu_proc=False):
     sq.put(None)
 
 
-def save(sq):
+def save(sq, output_path):
     while True:
         item = sq.get()
         if item == None:
@@ -108,7 +108,7 @@ def save(sq):
         for tile in item['tiles']:
             y1, y2, x1, x2 = tile['coords']
             img[:, :, y1*4:y2*4, x1*4:x2*4] = tile['data']
-        save_img(f'outputs/{item["file"]}', img)
+        save_img(f'{output_path}/{item["file"]}', img)
         
 
 if __name__ == '__main__':
@@ -138,8 +138,8 @@ if __name__ == '__main__':
     pq = queue.Queue(maxsize=10)
     sq = queue.Queue()
 
-    lt = threading.Thread(target=load, args=(lq, pq, args.tile,))
-    st = threading.Thread(target=save, args=(sq,))
+    lt = threading.Thread(target=load, args=(lq, pq, args.tile, args.input,))
+    st = threading.Thread(target=save, args=(sq, args.output,))
 
     lt.start()
     st.start()
