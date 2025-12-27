@@ -68,8 +68,10 @@ def load(lq, pq, tile_size):
     pq.put(None)
 
 
-def proc(lq, pq, sq, model_name, backend='tiny'):
+def proc(lq, pq, sq, model_name, backend='tiny', cpu_proc=False):
     model = load_model(model_name, backend, weights=True)
+    if backend != 'tiny' and not cpu_proc:
+        model = model.to('cuda')
     while True:
         item = pq.get()
         if item == None:
@@ -79,7 +81,10 @@ def proc(lq, pq, sq, model_name, backend='tiny'):
             if backend == 'tiny':
                 out = jit(model, Tensor(tile['data'])).numpy()
             else:
-                out = model.forward(torch.tensor(tile['data'])).detach().numpy()
+                inputs = torch.tensor(tile['data'])
+                if not cpu_proc:
+                    inputs = inputs.to('cuda')
+                out = model.forward(inputs).detach().numpy()
             tiles.append({
                 'coords': tile['coords'],
                 'data': out,
@@ -110,11 +115,19 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', '-i', type=str, default='inputs')
     parser.add_argument('--output', '-o', type=str, default='outputs')
-    # parser.add_argument('--model', '-m', type=str, default='RealESRGAN_x4plus')
-    parser.add_argument('--model', '-m', type=str, default='realesr-animevideov3')
+    parser.add_argument('--model', '-m', type=str, default='balanced')
     parser.add_argument('--tile', '-t', type=int, default=128)
     parser.add_argument('--backend', '-b', type=str, default='tiny')
     args = parser.parse_args()
+
+    model_map = {
+        'fast': 'realesr-animevideov3',
+        'balanced': 'realesr-general-x4v3',
+        'quality': 'RealESRGAN_x4plus',
+    }
+    model = model_map[args.model] 
+
+    cpu_proc = os.environ.get('CPU', 0)
 
     imgs = sorted(os.listdir(args.input))
 
@@ -131,7 +144,7 @@ if __name__ == '__main__':
     lt.start()
     st.start()
 
-    proc(lq, pq, sq, args.model, args.backend)
+    proc(lq, pq, sq, model, args.backend, cpu_proc)
 
     lt.join()
     st.join()
