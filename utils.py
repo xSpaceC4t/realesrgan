@@ -1,7 +1,5 @@
-import torch
 import cv2
 import numpy as np
-from tinygrad.nn.state import safe_load, load_state_dict, get_state_dict
 
 
 def load_pth(path, model):
@@ -15,9 +13,11 @@ def load_pth(path, model):
 
 def load_model(name, backend, weights=False):
     if backend == 'tiny':
+        from tinygrad.nn.state import safe_load, load_state_dict, get_state_dict
         from rrdbnet_tiny import RRDBNet
         from srvgg_tiny import SRVGGNetCompact
     elif backend == 'tch':
+        import torch
         from rrdbnet_tch import RRDBNet
         from srvgg_tch import SRVGGNetCompact
     else:
