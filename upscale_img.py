@@ -9,6 +9,14 @@ import numpy as np
 from tinygrad import Tensor, TinyJit
 from tqdm import tqdm
 from utils import *
+from itertools import product
+from collections import namedtuple
+from dataclasses import dataclass
+from typing import NamedTuple
+
+
+TILE_PAD = 10
+SCALE = 4
 
 
 @TinyJit
@@ -16,85 +24,104 @@ def jit(model, x):
     return model(x).realize()
 
 
-def get_tile(y, height, tile_size, tile_pad):
+def get_tile(y, height, tile_size):
     y1 = y * tile_size
     y2 = y1 + tile_size
     y2 = min(y2, height)
     if y1 == 0:
-        y2 += tile_pad * 2
+        y2 += TILE_PAD * 2
     elif y2 == height:
-        y1 = y2 - tile_size - tile_pad * 2
+        y1 = y2 - tile_size - TILE_PAD * 2
     else:
-        y1 -= tile_pad
-        y2 += tile_pad
+        y1 -= TILE_PAD
+        y2 += TILE_PAD
     return y1, y2
 
 
+@dataclass
+class Tile:
+    in_coords: tuple
+    in_data: np.array
+    out_coords: tuple
+    out_data: np.array
+
+
 def load_tiles(img, tile_size):
-    scale = 4
-    tile_pad = 10
-    tile_size -= tile_pad * 2
+    tile_size -= TILE_PAD * 2
     _, _, height, width = img.shape
     tiles_x = math.ceil(width / tile_size)
     tiles_y = math.ceil(height / tile_size)
 
     tiles = []
-    for y in range(tiles_y):
-        y1, y2 = get_tile(y, height, tile_size, tile_pad)
-        assert y2 - y1 == tile_size + tile_pad * 2
-        for x in range(tiles_x):
-            x1, x2 = get_tile(x, width, tile_size, tile_pad)
-            assert x2 - x1 == tile_size + tile_pad * 2
-            tiles.append({
-                'coords': [y1, y2, x1, x2],
-                'data': img[:, :, y1:y2, x1:x2],
-            })
+    for x, y in product(range(tiles_x), range(tiles_y)):
+        y1, y2 = get_tile(y, height, tile_size)
+        x1, x2 = get_tile(x, width, tile_size)
+        tiles.append(Tile(
+            in_coords=(y1, y2, x1, x2),
+            in_data=img[:, :, y1:y2, x1:x2],
+            out_coords=None,
+            out_data=None,
+        ))
 
     return tiles
 
 
-def load(lq, pq, tile_size, input_path):
+@dataclass
+class Item:
+    filename: str
+    input_dir: str
+    height: int
+    width: int
+    tiles: list
+
+
+def load(lq, pq, tile_size, input_dir):
     while not lq.empty():
-        file = lq.get()
-        img = load_img(f'{input_path}/{file}')
+        filename = lq.get()
+        img = load_img(f'{input_dir}/{filename}')
         tiles = load_tiles(img, tile_size)
-        item = {
-            'file': file,
-            'height': img.shape[2],
-            'width': img.shape[3],
-            'tiles': tiles,
-        }
-        pq.put(item)
+        pq.put(Item(
+            filename=filename,
+            input_dir=input_dir,
+            height=img.shape[2],
+            width=img.shape[3],
+            tiles=tiles,
+        ))
     pq.put(None)
 
 
-def proc(lq, pq, sq, model_name, backend='tiny', cpu_proc=False):
-    model = load_model(model_name, backend, weights=True)
-    if backend != 'tiny' and not cpu_proc:
-        model = model.to('cuda')
+class TinyModel:
+    def __init__(self, name):
+        self.model = load_model(name, 'tiny', weights=True)
+
+    def __call__(self, x):
+        return jit(self.model, Tensor(x)).numpy()
+
+
+class TchModel:
+    def __init__(self, name):
+        self.cpu_proc = os.environ.get('CPU', 0)
+        self.model = load_model(name, 'tch', weights=True)
+        if not self.cpu_proc:
+            self.model = self.model.to('cuda')
+
+    def __call__(self, x):
+        x = torch.tensor(x)
+        if not cpu_proc:
+            x = x.to('cuda')
+        out = model.forward(x).detach().numpy()
+        return out
+
+
+def proc(lq, pq, sq, model_name, backend='tiny', cpu_proc=False, model=None):
     while True:
         item = pq.get()
         if item == None:
             break
-        tiles = []
-        for tile in tqdm(item['tiles']):
-            if backend == 'tiny':
-                out = jit(model, Tensor(tile['data'])).numpy()
-            else:
-                inputs = torch.tensor(tile['data'])
-                if not cpu_proc:
-                    inputs = inputs.to('cuda')
-                out = model.forward(inputs).detach().numpy()
-            tiles.append({
-                'coords': tile['coords'],
-                'data': out,
-            })
-        sq.put({
-            'file': item['file'],
-            'height': item['height'] * 4,
-            'width': item['width'] * 4,
-            'tiles': tiles,
-        })
+        for i in tqdm(range(len(item.tiles))):
+            out = model(item.tiles[i].in_data)
+            item.tiles[i].out_data = out
+        sq.put(item)
     sq.put(None)
 
 
@@ -103,13 +130,12 @@ def save(sq, output_path):
         item = sq.get()
         if item == None:
             return
-        print(item['file'])
-        img = np.zeros([1, 3, item['height'], item['width']])
-        for tile in item['tiles']:
-            y1, y2, x1, x2 = tile['coords']
-            img[:, :, y1*4:y2*4, x1*4:x2*4] = tile['data']
-        save_img(f'{output_path}/{item["file"]}', img)
-        
+        img = np.zeros([1, 3, item.height * SCALE, item.width * SCALE])
+        for tile in item.tiles:
+            y1, y2, x1, x2 = tile.in_coords
+            img[:, :, y1*SCALE:y2*SCALE, x1*SCALE:x2*SCALE] = tile.out_data
+        save_img(f'{output_path}/{item.filename}', img)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -126,6 +152,11 @@ if __name__ == '__main__':
         'quality': 'RealESRGAN_x4plus',
     }
     model = model_map[args.model] 
+
+    if os.environ.get('TORCH', 0):
+        model = TchModel(model)
+    else:
+        model = TinyModel(model)
 
     cpu_proc = os.environ.get('CPU', 0)
 
@@ -144,7 +175,7 @@ if __name__ == '__main__':
     lt.start()
     st.start()
 
-    proc(lq, pq, sq, model, args.backend, cpu_proc)
+    proc(lq, pq, sq, model, args.backend, cpu_proc, model=model)
 
     lt.join()
     st.join()
