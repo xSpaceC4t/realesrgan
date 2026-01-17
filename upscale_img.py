@@ -139,12 +139,36 @@ def save(sq, output_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input', '-i', type=str, default='inputs')
-    parser.add_argument('--output', '-o', type=str, default='outputs')
+    parser.add_argument('--input', '-i', type=str, default=None)
+    parser.add_argument('--output', '-o', type=str, default=None)
     parser.add_argument('--model', '-m', type=str, default='balanced')
     parser.add_argument('--tile', '-t', type=int, default=128)
     parser.add_argument('--backend', '-b', type=str, default='tiny')
+    parser.add_argument('--force', '-f', type=bool, default=False)
     args = parser.parse_args()
+    # progress bar by img or by tile
+
+    if not args.input:
+        input_dir = 'inputs'
+        print(f'WARNING! Input dir is not specified. Defaulting to: {input_dir}')
+    if not args.output:
+        output_dir = 'outputs'
+        print(f'WARNING! Output dir is not specified. Defaulting to: {output_dir}')
+
+    if not os.path.exists(input_dir):
+        print(f'ERROR! Input dir does not exists!')
+        sys.exit()
+    if not len(os.listdir(input_dir)):
+        print(f'ERROR! Input dir is empty!')
+        sys.exit()
+
+    if not os.path.exists(output_dir):
+        print(f'WARNING! Output dir does not exists! Creating new: {output_dir}')
+        os.mkdir(output_dir)
+
+    if len(os.listdir(output_dir)):
+        print(f'ERROR! Output dir is not empty! Set "-f/--force" to overwrite')
+        sys.exit()
 
     model_map = {
         'fast': 'realesr-animevideov3',
@@ -154,13 +178,15 @@ if __name__ == '__main__':
     model = model_map[args.model] 
 
     if os.environ.get('TORCH', 0):
+        print('Current backend: TORCH')
         model = TchModel(model)
     else:
+        print('Current backend: TINYGRAD')
         model = TinyModel(model)
 
     cpu_proc = os.environ.get('CPU', 0)
 
-    imgs = sorted(os.listdir(args.input))
+    imgs = sorted(os.listdir(input_dir))
 
     lq = queue.Queue()
     for img in imgs:
@@ -169,8 +195,8 @@ if __name__ == '__main__':
     pq = queue.Queue(maxsize=10)
     sq = queue.Queue()
 
-    lt = threading.Thread(target=load, args=(lq, pq, args.tile, args.input,))
-    st = threading.Thread(target=save, args=(sq, args.output,))
+    lt = threading.Thread(target=load, args=(lq, pq, args.tile, input_dir,))
+    st = threading.Thread(target=save, args=(sq, output_dir,))
 
     lt.start()
     st.start()
@@ -179,3 +205,6 @@ if __name__ == '__main__':
 
     lt.join()
     st.join()
+
+    # check for names input/output to match
+    print('DONE')
