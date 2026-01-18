@@ -220,6 +220,7 @@ if __name__ == '__main__':
 
     try:
         import torch
+        is_torch_available = True
     except ModuleNotFoundError as err:
         print(f'WARNING! Torch is not installed! Defaulting to: Tinygrad')
         is_torch_available = False
