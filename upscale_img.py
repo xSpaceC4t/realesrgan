@@ -141,7 +141,7 @@ def proc(lq, pq, sq, model, total_items, bar_mode='tile'):
 
 
 def save(sq, output_path):
-    f = open('sha256sums.txt', 'wt')
+    # f = open('sha256sums.txt', 'wt')
 
     while True:
         item = sq.get()
@@ -154,10 +154,10 @@ def save(sq, output_path):
         out_path = f'{output_path}/{item.filename}'
         save_img(out_path, img)
 
-        chksum = hashlib.sha256(open(out_path, 'rb').read()).hexdigest()
+        # chksum = hashlib.sha256(open(out_path, 'rb').read()).hexdigest()
         # print(chksum)
-        line = f'{chksum}  {out_path}'
-        print(line)
+        # line = f'{chksum}  {out_path}'
+        # print(line)
 
     f.close()
 
