@@ -3,6 +3,7 @@ import numpy as np
 
 
 def load_pth(path, model):
+    import torch
     loadnet = torch.load(path, map_location=torch.device('cpu'))
     if 'params_ema' in loadnet:
         keyname = 'params_ema'

@@ -111,7 +111,7 @@ class TchModel:
         x = torch.tensor(x)
         if not cpu_proc:
             x = x.to('cuda')
-        out = model.forward(x).detach().numpy()
+        out = self.model.forward(x).detach().numpy()
         return out
 
 
