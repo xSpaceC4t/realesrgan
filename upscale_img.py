@@ -6,6 +6,7 @@ import queue
 import threading
 import math
 import shutil
+import hashlib
 import numpy as np
 from tinygrad import Tensor, TinyJit
 from tqdm import tqdm
@@ -114,19 +115,34 @@ class TchModel:
         return out
 
 
-def proc(lq, pq, sq, model_name, backend='tiny', cpu_proc=False, model=None):
+def proc(lq, pq, sq, model, total_items, bar_mode='tile'):
+    if bar_mode == 'image':
+        pbar = tqdm(total=total_items, leave=False)
+
     while True:
         item = pq.get()
         if item == None:
             break
-        for i in tqdm(range(len(item.tiles))):
+
+        if bar_mode == 'image':
+            loop = range(len(item.tiles))
+        else:
+            loop = tqdm(range(len(item.tiles)), desc=f'{item.filename}')
+
+        for i in loop:
             out = model(item.tiles[i].in_data)
             item.tiles[i].out_data = out
         sq.put(item)
+
+        if bar_mode == 'image':
+            pbar.update(1)
+
     sq.put(None)
 
 
 def save(sq, output_path):
+    f = open('sha256sums.txt', 'wt')
+
     while True:
         item = sq.get()
         if item == None:
@@ -135,20 +151,31 @@ def save(sq, output_path):
         for tile in item.tiles:
             y1, y2, x1, x2 = tile.in_coords
             img[:, :, y1*SCALE:y2*SCALE, x1*SCALE:x2*SCALE] = tile.out_data
-        save_img(f'{output_path}/{item.filename}', img)
+        out_path = f'{output_path}/{item.filename}'
+        save_img(out_path, img)
+
+        chksum = hashlib.sha256(open(out_path, 'rb').read()).hexdigest()
+        # print(chksum)
+        line = f'{chksum}  {out_path}'
+        print(line)
+
+    f.close()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--inputs', '-i', type=str, default=None)
     parser.add_argument('--outputs', '-o', type=str, default=None)
-    parser.add_argument('--model', '-m', type=str, default='balanced')
+    # parser.add_argument('--model', '-m', type=str, default='balanced')
+    choices = ['fast', 'balanced', 'quality']
+    parser.add_argument('--model', '-m', choices=choices, default='balanced')
     parser.add_argument('--tile', '-t', type=int, default=128)
     parser.add_argument('--force', '-f', action='store_true')
     parser.add_argument('--bar-mode', '-bm', choices=['tile', 'image'], default='tile')
     args = parser.parse_args()
-    # progress bar by img or by tile
-    # continue option
+    # continue option, progress tracing checksums etc?
+    # model name checking
+    # most important: cpu, continue
 
     input_dir = args.inputs
     output_dir = args.outputs
@@ -191,12 +218,19 @@ if __name__ == '__main__':
     }
     model = model_map[args.model] 
 
-    if os.environ.get('TORCH', 0):
-        print('Current backend: TORCH')
+    try:
+        import torch
+    except ModuleNotFoundError as err:
+        print(f'WARNING! Torch is not installed! Defaulting to: Tinygrad')
+        is_torch_available = False
+
+    if os.environ.get('TORCH', 0) and is_torch_available:
+        print('INFO! Current backend: Torch')
         model = TchModel(model)
     else:
-        print('Current backend: TINYGRAD')
+        print('INFO! Current backend: Tinygrad')
         model = TinyModel(model)
+    print(f'INFO! Current model: {args.model} ({model_map[args.model]})')
 
     # using cpu or not
     # when cuda device is not available for torch
@@ -218,10 +252,11 @@ if __name__ == '__main__':
     lt.start()
     st.start()
 
-    proc(lq, pq, sq, model, args.backend, cpu_proc, model=model)
+    print(f'INFO! Progress bar mode: {args.bar_mode}')
+    proc(lq, pq, sq, model, len(imgs), args.bar_mode)
 
     lt.join()
     st.join()
 
     # check for names input/output to match
-    print('DONE')
+    print('INFO! Processing is done!')
