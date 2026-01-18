@@ -141,8 +141,6 @@ def proc(lq, pq, sq, model, total_items, bar_mode='tile'):
 
 
 def save(sq, output_path):
-    # f = open('sha256sums.txt', 'wt')
-
     while True:
         item = sq.get()
         if item == None:
@@ -153,12 +151,6 @@ def save(sq, output_path):
             img[:, :, y1*SCALE:y2*SCALE, x1*SCALE:x2*SCALE] = tile.out_data
         out_path = f'{output_path}/{item.filename}'
         save_img(out_path, img)
-
-        # chksum = hashlib.sha256(open(out_path, 'rb').read()).hexdigest()
-        # print(chksum)
-        # line = f'{chksum}  {out_path}'
-        # print(line)
-
     f.close()
 
 
@@ -166,16 +158,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--inputs', '-i', type=str, default=None)
     parser.add_argument('--outputs', '-o', type=str, default=None)
-    # parser.add_argument('--model', '-m', type=str, default='balanced')
     choices = ['fast', 'balanced', 'quality']
     parser.add_argument('--model', '-m', choices=choices, default='balanced')
     parser.add_argument('--tile', '-t', type=int, default=128)
     parser.add_argument('--force', '-f', action='store_true')
     parser.add_argument('--bar-mode', '-bm', choices=['tile', 'image'], default='tile')
     args = parser.parse_args()
-    # continue option, progress tracing checksums etc?
-    # model name checking
-    # most important: cpu, continue
 
     input_dir = args.inputs
     output_dir = args.outputs
@@ -231,12 +219,14 @@ if __name__ == '__main__':
     else:
         print('INFO! Current backend: Tinygrad')
         model = TinyModel(model)
-    print(f'INFO! Current model: {args.model} ({model_map[args.model]})')
 
-    # using cpu or not
-    # when cuda device is not available for torch
-    # embed tinygrad
     cpu_proc = os.environ.get('CPU', 0)
+    if cpu_proc:
+        print('INFO! Using CPU device')
+    else:
+        print('INFO! Using GPU device')
+
+    print(f'INFO! Current model: {args.model} ({model_map[args.model]})')
 
     imgs = sorted(os.listdir(input_dir))
 
@@ -259,5 +249,4 @@ if __name__ == '__main__':
     lt.join()
     st.join()
 
-    # check for names input/output to match
     print('INFO! Processing is done!')
